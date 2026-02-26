@@ -1,6 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List
 from embedder import embed_text
 from pdf_extractor import extract_text_from_pdf, extract_text_from_txt
 from helpers import preprocess
@@ -21,7 +20,7 @@ def home():
 
 @app.post("/submit-resume")
 async def submit_resume(file: UploadFile = File(...)):
-    """Candidate submits resume — stored in FAISS"""
+    """Candidate submits resume"""
     content = await file.read()
     if file.filename.endswith(".pdf"):
         text = extract_text_from_pdf(content)
@@ -39,21 +38,26 @@ async def submit_resume(file: UploadFile = File(...)):
 
 @app.post("/search")
 def search(query: str = Form(...), top_k: int = Form(10)):
-    """Recruiter searches by job description"""
+    """Search resumes by semantic similarity to job description"""
     clean_query = preprocess(query)
     query_embedding = embed_text(clean_query)
     results = search_resumes(query_embedding, top_k=top_k)
-    return {"query": query, "results": results}
+    
+    return {
+        "query": query, 
+        "results_count": len(results),
+        "results": results
+    }
 
 @app.get("/resumes")
 def list_resumes():
-    """List all candidates in pool"""
+    """List all resumes"""
     resumes = get_all_resumes()
     return {"total": len(resumes), "resumes": resumes}
 
 @app.delete("/resumes/{filename}")
 def remove_resume(filename: str):
-    """Delete a specific resume"""
+    """Delete a resume"""
     success = delete_resume(filename)
     if not success:
         raise HTTPException(status_code=404, detail=f"{filename} not found")
