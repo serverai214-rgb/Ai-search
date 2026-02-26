@@ -6,7 +6,7 @@ import os
 INDEX_FILE = "resume_index.faiss"
 META_FILE = "resume_meta.json"
 DIMENSION = 384
-SCORE_THRESHOLD = 0.3  # only return resumes above this score
+MIN_SCORE = 0.4  # Only return resumes with 40%+ relevance
 
 _index = None
 _meta = []
@@ -35,6 +35,7 @@ def _save_meta():
         json.dump(_get_meta(), f, indent=2)
 
 def add_resume(filename: str, text: str, embedding: np.ndarray):
+    """Add resume to vector store"""
     index = _get_index()
     meta = _get_meta()
     vec = np.array([embedding], dtype=np.float32)
@@ -47,7 +48,17 @@ def add_resume(filename: str, text: str, embedding: np.ndarray):
     _save_index()
     _save_meta()
 
-def search_resumes(query_embedding: np.ndarray, top_k: int = 10):
+def search_resumes(query_embedding: np.ndarray, top_k: int = 10, min_score: float = MIN_SCORE):
+    """
+    Search resumes using semantic similarity.
+    Only returns results with score >= min_score.
+    
+    Score guide:
+    - 0.5+ = Highly relevant
+    - 0.4-0.5 = Relevant  
+    - 0.3-0.4 = Somewhat relevant
+    - <0.4 = Not shown (filtered out)
+    """
     index = _get_index()
     meta = _get_meta()
 
@@ -55,17 +66,24 @@ def search_resumes(query_embedding: np.ndarray, top_k: int = 10):
         return []
 
     vec = np.array([query_embedding], dtype=np.float32)
-    top_k = min(top_k, index.ntotal)
-    distances, indices = index.search(vec, top_k)
+    # Search more to filter properly
+    search_k = min(top_k * 5, index.ntotal)
+    distances, indices = index.search(vec, search_k)
 
     results = []
     for dist, idx in zip(distances[0], indices[0]):
         if idx < len(meta):
             score = round(float(1 / (1 + dist)), 4)
-            if score >= SCORE_THRESHOLD:  # filter out weak matches
+            
+            # Only include if meets minimum threshold
+            if score >= min_score:
                 entry = meta[idx].copy()
                 entry["score"] = score
                 results.append(entry)
+            
+            # Stop once we have enough
+            if len(results) >= top_k:
+                break
 
     results.sort(key=lambda x: x["score"], reverse=True)
     return results
